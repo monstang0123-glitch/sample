@@ -19,7 +19,7 @@ import {
   Github
 } from 'lucide-react';
 import { auth, db } from './lib/firebase';
-import { signInAnonymously, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut } from 'firebase/auth';
+import { signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut } from 'firebase/auth';
 import { doc, setDoc, getDoc, collection, onSnapshot, addDoc, deleteDoc, updateDoc } from 'firebase/firestore';
 import { productServices } from './lib/services';
 import { cn } from './lib/utils';
@@ -111,20 +111,10 @@ export default function App() {
     } catch (error: any) {
       console.error("Google Login failed", error);
       if (error.code === 'auth/popup-blocked') {
-        setAuthError("Popup blocked! Enable popups to sign in with Google.");
+        setAuthError("Popup blocked! Enable popups to sign in.");
       } else {
-        setAuthError("Google Sign-In failed. Using Guest session.");
+        setAuthError("Sign-in failed. Please try again.");
       }
-    }
-  };
-
-  const handleAnonLogin = async () => {
-    setAuthError(null);
-    try {
-      await signInAnonymously(auth);
-    } catch (error: any) {
-      console.error("Anon login fail", error);
-      setAuthError("Could not initialize session.");
     }
   };
 
@@ -132,7 +122,7 @@ export default function App() {
 
   const addToCart = async (product: Product) => {
     if (!user) {
-      handleLogin();
+      handleGoogleLogin();
       return;
     }
     const existing = cartItems.find(item => item.productId === product.id);
@@ -226,7 +216,7 @@ export default function App() {
               </button>
               <button 
                 onClick={() => {
-                  if (!user) handleLogin();
+                  if (!user) handleGoogleLogin();
                   else setActiveCategory("Admin");
                 }}
                 className={cn(
@@ -255,28 +245,20 @@ export default function App() {
 
             {/* Auth Buttons */}
             {!user && !authLoading && (
-              <div className="flex items-center gap-3">
-                <button 
-                  onClick={handleAnonLogin}
-                  className="text-[9px] font-black text-gray-400 uppercase tracking-widest hover:text-slate-800 transition-colors"
-                >
-                  Guest Mode
-                </button>
-                <button 
-                  onClick={handleGoogleLogin}
-                  className="bg-red-600 text-white px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-red-700 transition-all shadow-sm flex items-center gap-2"
-                >
-                  Sign In with Google
-                </button>
-              </div>
+              <button 
+                onClick={handleGoogleLogin}
+                className="bg-red-600 text-white px-5 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-red-700 transition-all shadow-md flex items-center gap-2"
+              >
+                Sign In with Google
+              </button>
             )}
 
             {user && (
               <div className="flex items-center gap-3 pl-2 border-l border-gray-200">
                 <div className="text-right hidden sm:block">
-                  <p className="text-[8px] font-black text-gray-400 uppercase tracking-tighter leading-none">Logged in as</p>
+                  <p className="text-[8px] font-black text-gray-400 uppercase tracking-tighter leading-none">User</p>
                   <p className="text-[10px] font-bold text-slate-800 leading-tight">
-                    {user.email || (user.uid.slice(0, 8) + '...')}
+                    {user.displayName || user.email || 'Member'}
                   </p>
                 </div>
                 <button 
