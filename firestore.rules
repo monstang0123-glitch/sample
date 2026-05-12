@@ -1,0 +1,121 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Phase 3: Primitives
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // Phase 4: Entity Validators
+    function isValidProduct(data) {
+      return data.keys().hasAll(['name', 'brand', 'price', 'description', 'images', 'category', 'stock']) &&
+             data.keys().size() == 7 &&
+             data.name is string && data.name.size() > 0 && data.name.size() <= 200 &&
+             data.brand is string && data.brand.size() > 0 && data.brand.size() <= 100 &&
+             data.price is number && data.price >= 0 &&
+             data.description is string && data.description.size() <= 2000 &&
+             data.images is list && data.images.size() > 0 && data.images.size() <= 10 &&
+             data.category is string &&
+             data.stock is int && data.stock >= 0;
+    }
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['displayName', 'email', 'photoURL']) &&
+             data.keys().size() <= 4 && // Allow isAdmin if present
+             data.displayName is string && data.displayName.size() <= 100 &&
+             data.photoURL is string;
+    }
+
+    function isValidCartItem(data) {
+      return data.keys().hasAll(['productId', 'quantity', 'price', 'name', 'image']) &&
+             data.keys().size() == 5 &&
+             isValidId(data.productId) &&
+             data.quantity is int && data.quantity > 0 && data.quantity <= 100 &&
+             data.price is number &&
+             data.name is string &&
+             data.image is string;
+    }
+
+    function isValidOrder(data) {
+      return data.keys().hasAll(['userId', 'items', 'total', 'status', 'address', 'createdAt']) &&
+             data.keys().size() == 6 &&
+             data.userId == request.auth.uid &&
+             data.items is list && data.items.size() > 0 &&
+             data.total is number && data.total >= 0 &&
+             data.status == 'pending' &&
+             data.address is string && data.address.size() > 0 &&
+             data.createdAt == request.time;
+    }
+
+    // 1. Products
+    match /products/{productId} {
+      allow read: if true;
+      allow create, update: if isAdmin() && isValidProduct(incoming());
+      allow delete: if isAdmin();
+    }
+
+    // 2. Users
+    match /users/{userId} {
+      allow get: if isOwner(userId) || isAdmin();
+      allow list: if isAdmin();
+      
+      allow create: if isOwner(userId) && isValidUser(incoming()) && 
+                    !incoming().keys().hasAny(['isAdmin']); // Prevent self-promotion
+                    
+      allow update: if isOwner(userId) && isValidUser(incoming()) &&
+                    incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL']);
+    }
+
+    // 3. Cart
+    match /users/{userId}/cart/{itemId} {
+      allow read, write: if isOwner(userId);
+      allow create, update: if isValidCartItem(incoming());
+    }
+
+    // 4. Orders
+    match /orders/{orderId} {
+      allow get: if isSignedIn() && (existing().userId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      
+      allow create: if isSignedIn() && isValidOrder(incoming());
+      
+      allow update: if isAdmin() && 
+                    incoming().diff(existing()).affectedKeys().hasOnly(['status']);
+    }
+    
+    // 5. Admin list (Protected)
+    match /admins/{adminId} {
+      allow read: if isSignedIn();
+      allow write: if false; // Only manageable through console/functions
+    }
+  }
+}
