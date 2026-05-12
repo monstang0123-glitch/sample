@@ -39,17 +39,18 @@ export default function App() {
 
   // Auth State
   useEffect(() => {
+    // Shorter safety timer to prevent UI lock
     const safetyTimer = setTimeout(() => {
       setAuthLoading(false);
-    }, 8000);
+    }, 4000);
 
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
         try {
-          // Use Promise.race to ensure getDoc doesn't hang the UI forever
+          // Rapid race for user profile
           const userDoc = await Promise.race([
             getDoc(doc(db, 'users', firebaseUser.uid)),
-            new Promise<null>((_, reject) => setTimeout(() => reject('timeout'), 5000))
+            new Promise<null>((_, reject) => setTimeout(() => reject('timeout'), 2500))
           ]).catch(() => null) as any;
           
           if (!userDoc || !userDoc.exists()) {
@@ -60,7 +61,7 @@ export default function App() {
               photoURL: firebaseUser.photoURL || '',
               isAdmin: true 
             };
-            await setDoc(doc(db, 'users', firebaseUser.uid), newUser).catch(() => null);
+            setDoc(doc(db, 'users', firebaseUser.uid), newUser).catch(() => null);
             setUser(newUser);
           } else {
             setUser({ uid: firebaseUser.uid, ...userDoc.data(), isAdmin: true } as UserProfile);
@@ -85,14 +86,23 @@ export default function App() {
 
   // Products Data
   useEffect(() => {
+    // Safety fallback for slow connections
+    const backupTimer = setTimeout(() => {
+      setProductsLoading(false);
+    }, 6000);
+
     const unsubscribe = productServices.subscribeProducts((data) => {
+      clearTimeout(backupTimer);
       if (data.length === 0) {
         productServices.seedProducts();
       }
       setProducts(data);
       setProductsLoading(false);
     });
-    return () => unsubscribe();
+    return () => {
+      unsubscribe();
+      clearTimeout(backupTimer);
+    };
   }, []);
 
   // Cart Data
@@ -256,14 +266,16 @@ export default function App() {
             {!user && (
               <button 
                 onClick={handleGoogleLogin}
-                disabled={authLoading}
                 className={cn(
                   "bg-red-600 text-white px-5 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-md flex items-center gap-2",
-                  authLoading ? "opacity-50 cursor-not-allowed" : "hover:bg-red-700"
+                  authLoading ? "opacity-90" : "hover:bg-red-700 hover:scale-105 active:scale-95"
                 )}
               >
                 {authLoading ? (
-                  <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  <>
+                    <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    <span>Syncing...</span>
+                  </>
                 ) : (
                   "Sign In with Google"
                 )}
@@ -294,10 +306,10 @@ export default function App() {
               </div>
             )}
             
-            {authLoading && (
-              <div className="flex items-center gap-2">
+            {authLoading && !user && (
+              <div className="flex items-center gap-2 px-3 py-1.5 bg-gray-50 rounded-lg animate-pulse">
                 <div className="w-3 h-3 border-2 border-red-600 border-t-transparent rounded-full animate-spin" />
-                <span className="text-[9px] font-bold text-gray-400 uppercase tracking-tighter">Syncing...</span>
+                <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest">Verifying session...</span>
               </div>
             )}
           </div>
