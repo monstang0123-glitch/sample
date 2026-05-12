@@ -41,23 +41,26 @@ export default function App() {
   useEffect(() => {
     const safetyTimer = setTimeout(() => {
       setAuthLoading(false);
-    }, 5000);
+    }, 8000);
 
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      clearTimeout(safetyTimer);
       if (firebaseUser) {
         try {
-          const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid)).catch(() => null);
+          // Use Promise.race to ensure getDoc doesn't hang the UI forever
+          const userDoc = await Promise.race([
+            getDoc(doc(db, 'users', firebaseUser.uid)),
+            new Promise<null>((_, reject) => setTimeout(() => reject('timeout'), 5000))
+          ]).catch(() => null) as any;
           
           if (!userDoc || !userDoc.exists()) {
             const newUser: UserProfile = {
               uid: firebaseUser.uid,
-              displayName: firebaseUser.displayName || (firebaseUser.isAnonymous ? 'Guest User' : 'User'),
+              displayName: firebaseUser.displayName || 'User',
               email: firebaseUser.email || '',
               photoURL: firebaseUser.photoURL || '',
               isAdmin: true 
             };
-            await setDoc(doc(db, 'users', firebaseUser.uid), newUser);
+            await setDoc(doc(db, 'users', firebaseUser.uid), newUser).catch(() => null);
             setUser(newUser);
           } else {
             setUser({ uid: firebaseUser.uid, ...userDoc.data(), isAdmin: true } as UserProfile);
@@ -65,9 +68,11 @@ export default function App() {
         } catch (error) {
           console.error("Auth sync error", error);
         } finally {
+          clearTimeout(safetyTimer);
           setAuthLoading(false);
         }
       } else {
+        clearTimeout(safetyTimer);
         setUser(null);
         setAuthLoading(false);
       }
@@ -105,15 +110,19 @@ export default function App() {
 
   const handleGoogleLogin = async () => {
     setAuthError(null);
+    setAuthLoading(true);
     const provider = new GoogleAuthProvider();
     try {
       await signInWithPopup(auth, provider);
     } catch (error: any) {
       console.error("Google Login failed", error);
+      setAuthLoading(false);
       if (error.code === 'auth/popup-blocked') {
-        setAuthError("Popup blocked! Enable popups to sign in.");
+        setAuthError("Popup blocked! Please allow popups.");
+      } else if (error.code === 'auth/cancelled-popup-request') {
+        setAuthError(null);
       } else {
-        setAuthError("Sign-in failed. Please try again.");
+        setAuthError("Google Sign-In failed. Please check your Firebase settings.");
       }
     }
   };
@@ -244,12 +253,20 @@ export default function App() {
             </button>
 
             {/* Auth Buttons */}
-            {!user && !authLoading && (
+            {!user && (
               <button 
                 onClick={handleGoogleLogin}
-                className="bg-red-600 text-white px-5 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-red-700 transition-all shadow-md flex items-center gap-2"
+                disabled={authLoading}
+                className={cn(
+                  "bg-red-600 text-white px-5 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-md flex items-center gap-2",
+                  authLoading ? "opacity-50 cursor-not-allowed" : "hover:bg-red-700"
+                )}
               >
-                Sign In with Google
+                {authLoading ? (
+                  <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  "Sign In with Google"
+                )}
               </button>
             )}
 
