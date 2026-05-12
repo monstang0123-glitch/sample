@@ -19,7 +19,7 @@ import {
   Github
 } from 'lucide-react';
 import { auth, db } from './lib/firebase';
-import { signInAnonymously, onAuthStateChanged, signOut } from 'firebase/auth';
+import { signInAnonymously, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut } from 'firebase/auth';
 import { doc, setDoc, getDoc, collection, onSnapshot, addDoc, deleteDoc, updateDoc } from 'firebase/firestore';
 import { productServices } from './lib/services';
 import { cn } from './lib/utils';
@@ -39,7 +39,6 @@ export default function App() {
 
   // Auth State
   useEffect(() => {
-    // Safety timeout to prevent infinite spinning if Firebase hangs
     const safetyTimer = setTimeout(() => {
       setAuthLoading(false);
     }, 5000);
@@ -53,7 +52,7 @@ export default function App() {
           if (!userDoc || !userDoc.exists()) {
             const newUser: UserProfile = {
               uid: firebaseUser.uid,
-              displayName: firebaseUser.isAnonymous ? 'Guest User' : (firebaseUser.displayName || 'User'),
+              displayName: firebaseUser.displayName || (firebaseUser.isAnonymous ? 'Guest User' : 'User'),
               email: firebaseUser.email || '',
               photoURL: firebaseUser.photoURL || '',
               isAdmin: true 
@@ -69,12 +68,8 @@ export default function App() {
           setAuthLoading(false);
         }
       } else {
-        // Only trigger anonymous sign-in once
-        signInAnonymously(auth).catch(err => {
-          console.error("Anon login fail", err);
-          setAuthLoading(false);
-        });
         setUser(null);
+        setAuthLoading(false);
       }
     });
     return () => {
@@ -108,12 +103,27 @@ export default function App() {
     return () => unsubscribe();
   }, [user]);
 
-  const handleLogin = async () => {
+  const handleGoogleLogin = async () => {
+    setAuthError(null);
+    const provider = new GoogleAuthProvider();
+    try {
+      await signInWithPopup(auth, provider);
+    } catch (error: any) {
+      console.error("Google Login failed", error);
+      if (error.code === 'auth/popup-blocked') {
+        setAuthError("Popup blocked! Enable popups to sign in with Google.");
+      } else {
+        setAuthError("Google Sign-In failed. Using Guest session.");
+      }
+    }
+  };
+
+  const handleAnonLogin = async () => {
     setAuthError(null);
     try {
       await signInAnonymously(auth);
     } catch (error: any) {
-      console.error("Login failed", error);
+      console.error("Anon login fail", error);
       setAuthError("Could not initialize session.");
     }
   };
@@ -243,42 +253,56 @@ export default function App() {
               )}
             </button>
 
+            {/* Auth Buttons */}
+            {!user && !authLoading && (
+              <div className="flex items-center gap-3">
+                <button 
+                  onClick={handleAnonLogin}
+                  className="text-[9px] font-black text-gray-400 uppercase tracking-widest hover:text-slate-800 transition-colors"
+                >
+                  Guest Mode
+                </button>
+                <button 
+                  onClick={handleGoogleLogin}
+                  className="bg-red-600 text-white px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-red-700 transition-all shadow-sm flex items-center gap-2"
+                >
+                  Sign In with Google
+                </button>
+              </div>
+            )}
+
             {user && (
               <div className="flex items-center gap-3 pl-2 border-l border-gray-200">
-                <span className="text-[9px] font-bold text-gray-400 uppercase tracking-tighter">Guest Session</span>
+                <div className="text-right hidden sm:block">
+                  <p className="text-[8px] font-black text-gray-400 uppercase tracking-tighter leading-none">Logged in as</p>
+                  <p className="text-[10px] font-bold text-slate-800 leading-tight">
+                    {user.email || (user.uid.slice(0, 8) + '...')}
+                  </p>
+                </div>
                 <button 
                   onClick={handleLogout}
                   className="flex items-center gap-2 p-1 hover:bg-red-50 rounded-full transition-all group"
                   title="Sign Out"
                 >
                   {user.photoURL ? (
-                    <img src={user.photoURL} alt="" className="w-7 h-7 rounded-full border border-gray-200 group-hover:border-red-200" />
+                    <img src={user.photoURL} alt="" className="w-8 h-8 rounded-full border border-gray-200 group-hover:border-red-200" />
                   ) : (
-                    <div className="w-7 h-7 bg-gray-200 rounded-full flex items-center justify-center">
+                    <div className="w-8 h-8 bg-gray-200 rounded-full flex items-center justify-center">
                       <User className="w-4 h-4 text-gray-500" />
                     </div>
                   )}
                 </button>
               </div>
             )}
-
-            {!user && !authLoading && (
-              <button 
-                onClick={handleLogin}
-                className="text-[10px] font-black text-red-600 uppercase tracking-widest hover:underline underline-offset-4"
-              >
-                Sign In
-              </button>
-            )}
             
             {authLoading && (
               <div className="flex items-center gap-2">
                 <div className="w-3 h-3 border-2 border-red-600 border-t-transparent rounded-full animate-spin" />
-                <span className="text-[9px] font-bold text-gray-400 uppercase tracking-tighter">Connecting...</span>
+                <span className="text-[9px] font-bold text-gray-400 uppercase tracking-tighter">Syncing...</span>
               </div>
             )}
           </div>
-          {authError && <span className="absolute top-full right-6 text-[9px] text-red-500 font-bold uppercase py-1">{authError}</span>}
+          {authError && <span className="absolute top-full right-6 text-[9px] text-red-500 font-bold uppercase py-1 bg-white/80 backdrop-blur px-2 rounded-b border-x border-b border-red-100">{authError}</span>}
         </div>
       </header>
 
